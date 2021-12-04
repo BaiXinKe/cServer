@@ -17,9 +17,11 @@ namespace cServer::base
         mutable std::mutex mtx_;
 
     public:
+        ThreadLocalQueue() = default;
+
         ThreadLocalQueue(ThreadLocalQueue &&other)
         {
-            std::lock_guard<std::mutex> lock_(this->mtx_);
+            std::lock_guard<std::mutex> lock_(other.mtx_);
             tasks_.swap(other.tasks_);
         }
 
@@ -30,7 +32,6 @@ namespace cServer::base
             std::shared_ptr<Task> task_{std::make_shared<Task>(std::move(task))};
             std::lock_guard<std::mutex> lock_(this->mtx_);
             this->tasks_.push_front(std::move(task_));
-            cond_.notify_one();
         }
 
         bool try_pop(Task &task)
@@ -40,6 +41,7 @@ namespace cServer::base
                 return false;
             task = std::move(*this->tasks_.front());
             this->tasks_.pop_front();
+            return true;
         }
 
         std::shared_ptr<Task> try_pop()
@@ -62,7 +64,7 @@ namespace cServer::base
             return true;
         }
 
-        std::shared_ptr<Task> try_pop()
+        std::shared_ptr<Task> try_steal()
         {
             std::lock_guard<std::mutex> lock_(this->mtx_);
             if (this->tasks_.empty())

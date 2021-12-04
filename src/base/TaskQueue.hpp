@@ -44,6 +44,7 @@ namespace cServer::base
                 return false;
             task_ = std::move(*this->tasks_.front());
             this->tasks_.pop();
+            return true;
         }
 
         std::shared_ptr<Task> try_pop()

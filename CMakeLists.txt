@@ -3,9 +3,9 @@ project(cServer VERSION 0.1.0)
 
 find_package(Threads REQUIRED)
 
-add_compile_options(-Wall -Wextra -Wpedantic -std=c++17)
+add_compile_options(-g -rdynamic -Wall -Wextra -Wpedantic -std=c++17)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp src/base/ThreadPool.cpp)
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC
