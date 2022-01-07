@@ -18,11 +18,12 @@ public:
     static Timestamp now();
     static Timestamp afterSeconds(double second);
 
-    inline bool operator<(Timestamp other);
-    inline bool operator<=(Timestamp other);
-    inline Timestamp operator+(Timestamp other);
-    inline Timestamp operator+(double seconds);
-    inline Timestamp operator+(uint64_t millseconds);
+    inline bool operator<(Timestamp other) const;
+    inline bool operator<=(Timestamp other) const;
+    inline bool operator==(Timestamp other) const;
+    inline Timestamp operator+(Timestamp other) const;
+    inline Timestamp operator+(double seconds) const;
+    inline Timestamp operator+(uint64_t millseconds) const;
 
     inline Timestamp& operator+=(Timestamp other);
     inline Timestamp& operator+=(double seconds);
@@ -35,32 +36,38 @@ public:
 };
 
 inline bool
-Timestamp::operator<(Timestamp other)
+Timestamp::operator<(Timestamp other) const
 {
     return this->ts_ < other.ts_;
 }
 
 inline bool
-Timestamp::operator<=(Timestamp other)
+Timestamp::operator<=(Timestamp other) const
 {
     return this->ts_ <= other.ts_;
 }
 
+inline bool
+Timestamp::operator==(Timestamp other) const
+{
+    return this->ts_ == other.ts_;
+}
+
 inline Timestamp
-Timestamp::operator+(Timestamp other)
+Timestamp::operator+(Timestamp other) const
 {
     return Timestamp(this->ts_ + other.ts_);
 }
 
 inline Timestamp
-Timestamp::operator+(double seconds)
+Timestamp::operator+(double seconds) const
 {
     uint64_t millseconds = static_cast<uint64_t>(seconds * 1000);
     return Timestamp(this->ts_ + millseconds);
 }
 
 inline Timestamp
-Timestamp::operator+(uint64_t millseconds)
+Timestamp::operator+(uint64_t millseconds) const
 {
     return Timestamp(this->ts_ + millseconds);
 }
