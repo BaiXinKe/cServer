@@ -13,6 +13,19 @@ public:
     ~TimerQueue() = default;
 
     void push(TimerPtr timer);
+
+    template <typename Func, typename... Args>
+    void runAt(base::Timestamp ts, Func&& func, Args...);
+
+    template <typename Func, typename... Args>
+    void runAfter(double seconds, Func&& func, Args...);
+
+    template <typename Func, typename... Args>
+    void runAtInterval(base::Timestamp ts, double interval, Func&& func, Args... args);
+
+    template <typename Func, typename... Args>
+    void runAfterInterval(double seconds, double interval, Func&& func, Args... args);
+
     std::vector<TimerPtr> get_expired_timers();
 
 private:
