@@ -1,0 +1,7 @@
+{
+    "logger" : {
+        "name" : "default_name",
+        "maxSizePerLogFile" : "512M",
+        "maxFileNumber" : 5
+    }
+}

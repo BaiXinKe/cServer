@@ -1,17 +1,11 @@
-#ifndef __cServer_NONCOPYABLE__
-#define __cServer_NONCOPYABLE__
+#pragma once
 
-namespace cServer::base
-{
-    class noncopyable
-    {
-    public:
-        noncopyable(noncopyable const &other) = delete;
-        noncopyable &operator=(noncopyable const &other) = delete;
+class noncopyable {
+public:
+    noncopyable(const noncopyable&) = delete;
+    noncopyable& operator=(const noncopyable&) = delete;
 
-    protected:
-        noncopyable() = default;
-        ~noncopyable() = default;
-    };
-} // namespace cServer::base
-#endif
+protected:
+    noncopyable() = default;
+    ~noncopyable() = default;
+};

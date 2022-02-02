@@ -1,15 +1,13 @@
-#include <future>
+#include "base/Setting.h"
+#include "base/logging.hpp"
 #include <iostream>
-#include "base/ThreadPool.hpp"
+#include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
-void func()
+int main(int, char**)
 {
-    std::cout << "Hello world" << std::endl;
-}
-
-int main(int, char **)
-{
-    cServer::base::ThreadPool pool{};
-
-    pool.submit(func);
+    SettingProfile::setSettingFilePosition("../src/settings.json");
+    for (int i = 0; i < 1000; i++)
+        Logger::getInstance()
+            .log(spdlog::level::info, "hello msg");
 }

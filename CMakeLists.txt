@@ -5,7 +5,7 @@ find_package(Threads REQUIRED)
 
 add_compile_options(-g -rdynamic -Wall -Wextra -Wpedantic -std=c++17)
 
-add_executable(${PROJECT_NAME} src/main.cpp src/base/ThreadPool.cpp)
+add_executable(${PROJECT_NAME} src/main.cpp src/base/Setting.cpp src/base/logging.cpp)
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC
