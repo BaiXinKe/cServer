@@ -1,70 +1,84 @@
 #include "TimerQueue.hpp"
-#include "EventLoop.h"
 
-TimerQueue::TimerQueue(EventLoop* loop)
-    : loop_ { loop }
-    , timer_list_ {}
+static constexpr int MILL_PER_SECONDS { 1000 };
+
+bool Duty::TimerQueue::TimerPtrLess::operator()(const TimerPtr& left, const TimerPtr& right) const
 {
+    return (*left) < (*right);
 }
 
-void TimerQueue::addTimer(TimerCallback cb, Timestamp timestamp, std::chrono::seconds second)
+void Duty::TimerQueue::runAfter(TimerCallback timercb, std::chrono::milliseconds millsconds)
 {
-    addTimer(cb, timestamp, std::chrono::duration_cast<std::chrono::milliseconds>(second));
+    Timestamp ts = now() + millsconds;
+    runUntil(std::move(timercb), std::move(ts));
 }
 
-void TimerQueue::addTimer(TimerCallback cb, Timestamp timestamp, std::chrono::milliseconds interval)
+void Duty::TimerQueue::runAfter(TimerCallback timercb, double seconds)
 {
-    Entry entry {};
-    entry.first = timestamp;
-    entry.second = std::make_unique<Timer>(cb, timestamp, interval);
-    timer_list_.insert(std::move(entry));
+    uint64_t millseconds = seconds * MILL_PER_SECONDS;
+    Timestamp ts = now() + std::chrono::milliseconds(millseconds);
+    runUntil(std::move(timercb), std::move(ts));
 }
 
-Timestamp TimerQueue::getNextExpirationTimestamp() const
+void Duty::TimerQueue::runUntil(TimerCallback timercb, Timestamp expire_time)
 {
-    return timer_list_.cbegin()->first;
+    TimerPtr timer { std::make_unique<Timer>(std::move(timercb), expire_time) };
+
+    assert(timer->repeat() == false);
+    assert(timer->interval() == std::chrono::milliseconds());
+
+    timers_.insert(std::move(timer));
 }
 
-void TimerQueue::cancel(TimerId id)
+void Duty::TimerQueue::runUntil(TimerCallback timercb, time_t expire_time)
 {
-    cancel_timers_.insert(id);
+    Timestamp ts { std::chrono::seconds(expire_time) };
+    runUntil(std::move(timercb), ts);
 }
 
-TimerQueue::ActivateTimers TimerQueue::getExpireation()
+void Duty::TimerQueue::runEvery(TimerCallback Timercb, std::chrono::milliseconds millseconds)
 {
-    using namespace std::chrono;
+    Timestamp expire_time = now() + millseconds;
+    TimerPtr timer { std::make_unique<Timer>(std::move(Timercb), expire_time, millseconds) };
 
-    // Complete error, because the entry in set have const characteristic can't to move.
-    // loop_->assertInLoopThread();
-    // ActivateTimers timers_;
-    // Timestamp now = system_clock::now();
-    // Entry curr { std::make_pair(now, std::make_unique<Timer>(TimerCallback(), now, milliseconds(0))) };
+    assert(timer->repeat());
+    assert(timer->interval() == millseconds);
 
-    // auto where = timer_list_.lower_bound(curr);
-
-    // timer_list_.erase(begin(timer_list_), where);
-
-    // for (auto& t : entrys) {
-    //     if (cancel_timers_.find(t.second->id()) != cancel_timers_.end())
-    //         continue;
-    //     timers_.emplace_back(std::move(t.second));
-    // }
-
-    // return timers_;
+    timers_.insert(std::move(timer));
 }
 
-void TimerQueue::reset(ActivateTimers timers)
+void Duty::TimerQueue::runEvery(TimerCallback timercb, double seconds)
 {
-    loop_->assertInLoopThread();
-    for (auto& timer : timers) {
-        if (timer->repeat()) {
-            timer->reset();
+    std::chrono::milliseconds ms {
+        std::chrono::milliseconds(static_cast<uint64_t>(seconds * MILL_PER_SECONDS))
+    };
+    runEvery(std::move(timercb), ms);
+}
 
-            Entry entry;
-            entry.first = timer->expiration();
-            entry.second = std::move(timer);
-
-            timer_list_.insert(std::move(entry));
-        }
+Duty::Timestamp Duty::TimerQueue::getNextExpiredTime() const
+{
+    if (timers_.empty()) {
+        return Timestamp {};
     }
+    auto next = timers_.begin();
+    return (*next)->expTime();
+}
+
+void Duty::TimerQueue::getExpiredTimes(std::vector<TimerPtr>& expired_times)
+{
+    Timestamp curr { now() };
+
+    while (!timers_.empty() && (*timers_.begin())->expTime() <= curr) {
+        auto timer_node = timers_.extract(timers_.begin());
+        expired_times.push_back(std::move(timer_node.value()));
+    }
+}
+
+void Duty::TimerQueue::addTimer(TimerPtr timer)
+{
+    assert(timer != nullptr);
+    assert(timers_.find(timer) == timers_.end());
+
+    timer->restart();
+    timers_.insert(std::move(timer));
 }

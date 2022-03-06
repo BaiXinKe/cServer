@@ -1,83 +1,87 @@
 #include "Socket.hpp"
-#include "Buffer.hpp"
-#include "Logger.hpp"
 #include <cassert>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <spdlog/spdlog.h>
 #include <sys/socket.h>
 
-using namespace chauncy;
-
-static void buildErrMsg(const char* functionName, char* buf, size_t bufSize, int errnum)
+Duty::Socket::Socket(int domain, int socktype, int protocol)
+    : handler_ { ::socket(domain, socktype, protocol) }
 {
-    int ret = snprintf(buf, bufSize, "%s: ", functionName);
-    strerror_r(errnum, buf + ret, bufSize - ret);
-};
+    assert(handler_ > 0);
+}
 
-Socket::Socket(SocketType type)
-    : sockfd_ { socket(type == SocketType::IPv4 ? AF_INET : AF_INET6, SOCK_STREAM, 0) }
+Duty::Socket::Socket(int handler)
+    : handler_ { handler }
 {
-    assert(sockfd_ >= 0);
-    int val = 1;
-    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val)) == -1) {
-        char errMsg[256] {};
-        buildErrMsg("setsocketopt", errMsg, sizeof(errMsg), errno);
-        CRITICAL(errMsg);
+    this->setNonblocking();
+    this->setReuseAddr();
+    this->setReusePort();
+    this->setTcpNoDelay(true);
+}
+
+void Duty::Socket::setReuseAddr()
+{
+    int opt { 1 };
+    if (::setsockopt(handler_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(int)) == -1) {
+        spdlog::error("setsockopt :" + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
 }
 
-void Socket::setnonblocking()
+void Duty::Socket::setNonblocking()
 {
-    int ret = ::fcntl(sockfd_, F_GETFL);
-    if (ret == -1) {
-        char errMsg[256] {};
-        buildErrMsg("fcntl", errMsg, sizeof(errMsg), errno);
-        CRITICAL(errMsg);
-    }
-    ret |= O_NONBLOCK;
-    if (::fcntl(sockfd_, F_SETFL, ret) == -1) {
-        char errMsg[256] {};
-        buildErrMsg("fcntl-2", errMsg, sizeof(errMsg), errno);
-        CRITICAL(errMsg);
+    int flag = ::fcntl(handler_, F_GETFL);
+    flag |= O_NONBLOCK;
+    if (::fcntl(handler_, F_SETFL) == -1) {
+        spdlog::error("::fcntl set nonblocking: " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
 }
 
-void Socket::shutdownWR()
+void Duty::Socket::setTcpNoDelay(bool on)
 {
-    if (::shutdown(sockfd_, SHUT_WR) == -1) {
-        char errMsg[256] {};
-        buildErrMsg("shutdown", errMsg, sizeof(errMsg), errno);
-        ERROR(errMsg);
+    int opt { on ? 1 : 0 };
+    if (::setsockopt(handler_, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt)) == -1) {
+        spdlog::error("setsocketopt (NO_DELAY) : " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
 }
 
-ssize_t Socket::read(std::unique_ptr<Buffer>& buffer)
+void Duty::Socket::setReusePort()
 {
-    static char stackBuffer[65536] {};
-    ssize_t readSize {};
-
-    if ((readSize = ::recv(sockfd_, &stackBuffer, sizeof(stackBuffer), 0)) > 0) {
-        buffer->append(stackBuffer, readSize);
+    int opt { 1 };
+    if (::setsockopt(handler_, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt)) == -1) {
+        spdlog::error("setsockopt (SO_REUSEPORT): " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
-
-    if (readSize < 0 && errno != (EWOULDBLOCK || EAGAIN)) {
-        char errMsg[256] {};
-        buildErrMsg("read", errMsg, sizeof(errMsg), errno);
-        ERROR(errMsg);
-    }
-    return readSize;
 }
 
-ssize_t Socket::write(std::unique_ptr<Buffer>& buffer)
+void Duty::Socket::setLinger(bool on, int linger)
 {
-    ssize_t writeSize {};
-    if ((writeSize = ::send(sockfd_, buffer->peek(), buffer->readableBytes(), 0)) > 0) {
-        buffer->retrieve(writeSize);
-    }
+    struct linger lin;
+    lin.l_onoff = on ? 1 : 0;
+    lin.l_linger = linger;
 
-    if (writeSize < 0 && errno != (EWOULDBLOCK || EAGAIN)) {
-        char errMsg[256] {};
-        buildErrMsg("write", errMsg, sizeof(errMsg), errno);
-        ERROR(errMsg);
+    if (::setsockopt(handler_, SOL_SOCKET, SO_LINGER, &lin, sizeof(lin)) == -1) {
+        spdlog::error("setsockopt (linger): " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
+}
 
-    return writeSize;
+void Duty::Socket::setKeepAlive(bool on)
+{
+    int opt { on ? 1 : 0 };
+    if (::setsockopt(handler_, SOL_SOCKET, SO_KEEPALIVE, &opt, sizeof(opt)) == -1) {
+        spdlog::error("setsocketopt (keep-alive): " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
+    }
+}
+
+void Duty::Socket::shutdownWR()
+{
+    if (::shutdown(handler_, SHUT_WR) == -1) {
+        spdlog::error("::shutdown : " + std::string(strerror(errno)));
+    }
 }

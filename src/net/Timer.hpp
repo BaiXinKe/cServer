@@ -1,56 +1,60 @@
-#pragma once
+#ifndef TIMER_HPP__
+#define TIMER_HPP__
 
-#include <chrono>
 #include <functional>
 #include <memory>
 
+#include "Callbacks.hpp"
 #include "TimerId.hpp"
+#include "Timestamp.hpp"
 
-using Timestamp = std::chrono::system_clock::time_point;
-using TimerCallback = std::function<void()>;
+namespace Duty {
 
 class Timer {
 public:
-    Timer(TimerCallback cb, Timestamp expiration, std::chrono::milliseconds interval);
-    Timer(TimerCallback cb, Timestamp expiration, std::chrono::seconds interval);
+    Timer(TimerCallback timercb, Timestamp expire_time, std::chrono::milliseconds interval = {});
+    void run();
 
-    ~Timer() = default;
+    void restart();
 
     bool repeat() const { return repeat_; }
     std::chrono::milliseconds interval() const { return interval_; }
-    std::chrono::seconds intervalAsSeconds() const
-    {
-        return std::chrono::duration_cast<std::chrono::seconds>(interval_);
-    }
-    Timestamp expiration() const { return expiration_; }
+    Timestamp expTime() const { return expire_time_; }
+    bool expired() const;
+
     TimerId id() const { return id_; }
 
-    void reset();
-
-    void run();
-
-    inline bool operator<(const Timer& other);
+    friend bool operator<(const Timer& left, const Timer& right);
 
 private:
     TimerId id_;
     TimerCallback timercb_;
-    Timestamp expiration_;
+
+    Timestamp expire_time_;
     std::chrono::milliseconds interval_;
     bool repeat_;
 };
 
-inline bool
-Timer::operator<(const Timer& other)
-{
-    bool flag = this->expiration_ < other.expiration_;
-    return flag ? true : (this->expiration_ == other.expiration_ ? (this->id_ < other.id_) : false);
-}
-
 using TimerPtr = std::unique_ptr<Timer>;
 
 inline bool
-operator<(const TimerPtr& left, const TimerPtr& right)
+operator<(const Timer& left, const Timer& right)
 {
-    bool flag = left->expiration() < right->expiration();
-    return flag ? true : (left->expiration() == right->expiration() ? (left->id() < right->id()) : false);
+    return left.expire_time_ < right.expire_time_;
 }
+
+inline bool
+operator==(const Timer& left, const Timer& right)
+{
+    return left.id() == right.id();
+}
+
+inline bool
+operator==(const TimerPtr& left, const TimerPtr& right)
+{
+    return (*left) == (*right);
+}
+
+}
+
+#endif

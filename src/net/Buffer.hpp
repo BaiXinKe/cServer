@@ -1,57 +1,83 @@
-#ifndef _BUFFER_HPP
-#define _BUFFER_HPP
+#ifndef BUFFER_HPP__
+#define BUFFER_HPP__
+
 #include <string>
 #include <vector>
 
-namespace chauncy {
+
+
+#include "Handler.hpp"
+
+namespace Duty {
 
 class Buffer {
 public:
-    static constexpr size_t INIT_BUFFER_SIZE { 8192 };
-    static constexpr size_t PREPEND_SIZE { 8 };
+    static constexpr size_t INIT_PREPEND_SIZE { 64 };
+    static constexpr size_t DEFAULT_INIT_BUFFER_SIZE { 256 };
+    static constexpr double INCREASE_RATE { 1.8 };
+    static constexpr const char CRLF[] { "\r\n" };
 
-    explicit Buffer(size_t init_buffer_size = INIT_BUFFER_SIZE);
-
+    Buffer(size_t init_size = DEFAULT_INIT_BUFFER_SIZE);
     ~Buffer() = default;
-
-    const char* peek() const { return &buffer_[0] + readIndex_; }
 
     const char* findCRLF() const;
 
-    void retrieve(size_t len);
+    const char* Peek() const { return &data_[read_index_]; }
+    char* Peek() { return &data_[read_index_]; }
+
+    void append(const void* buf, size_t size);
+
+    void appendInt8(int8_t val);
+    void appendInt16(int16_t val);
+    void appendInt32(int32_t val);
+    void appendInt64(int64_t val);
+
+    void retrieve(size_t size);
+    void retrieveInt8();
+    void retrieveInt16();
     void retrieveInt32();
     void retrieveInt64();
     void retrieveAll();
-    std::string retriveAllAsString();
 
-    void append(const void* buf, size_t len);
-    void appendInt32(int32_t num);
-    void appendInt64(int64_t num);
-    void appendString(const std::string& str);
-    void appendStringView(std::string_view);
+    std::string retrieveAsString(size_t size);
+    std::string retrieveAllAsString();
 
-    size_t readableBytes() const
-    {
-        return writeIndex_ - readIndex_;
-    }
-    size_t prependBytes() const { return readIndex_ - prependIndex_; }
-    size_t writeableBytes() const { return buffer_.size() - writeIndex_; }
+    std::string_view retrieveAsStringView();
 
-private:
-    char* begin() { return &buffer_[0] + readIndex_; }
-    char* end() { return &buffer_[0] + writeIndex_; }
+    int8_t peekInt8() const;
+    int16_t peekInt16() const;
+    int32_t peekInt32() const;
+    int64_t peekInt64() const;
 
-    const char* begin() const { return &buffer_[0] + readIndex_; }
-    const char* end() const { return &buffer_[0] + writeIndex_; }
+    int8_t readInt8();
+    int16_t readInt16();
+    int32_t readInt32();
+    int64_t readInt64();
 
-    void expandSpace();
+    size_t readable() const { return write_index_ - read_index_; }
+    size_t prependSize() const { return read_index_; }
+
+    ssize_t readHandler(Handler handler, int* savedErrno);
 
 private:
-    std::vector<char> buffer_;
-    size_t prependIndex_;
-    size_t readIndex_;
-    size_t writeIndex_;
+    char* begin() { return &data_[0] + read_index_; }
+    const char* begin() const { return &data_[0] + read_index_; }
+    char* end() { return &data_[0] + write_index_; }
+    const char* end() const { return &data_[0] + write_index_; }
+
+private:
+    size_t writeable() const { return data_.size() - write_index_; }
+    void expandSpace(size_t size);
+
+private:
+    std::vector<char> data_;
+
+    size_t read_index_;
+    size_t write_index_;
+
+    size_t capacity_;
 };
+
 }
 
 #endif

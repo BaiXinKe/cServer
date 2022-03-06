@@ -1,8 +1,8 @@
 #include "TimerId.hpp"
 
-std::atomic<int64_t> TimerId::globalId { 1 };
+std::atomic<uint64_t> Duty::TimerId::globalId_ { 0 };
 
-TimerId::TimerId()
-    : id_ { globalId.fetch_add(1) }
+Duty::TimerId::TimerId()
+    : id_ { globalId_.fetch_add(1) }
 {
 }

@@ -1,36 +1,45 @@
-#pragma once
+#ifndef TIMERQUEUE_HPP__
+#define TIMERQUEUE_HPP__
 
+#include "Callbacks.hpp"
 #include "Timer.hpp"
-#include <chrono>
+
 #include <memory>
 #include <set>
-#include <vector>
 
-class EventLoop;
+namespace Duty {
 
 class TimerQueue {
 public:
-    using ActivateTimers = std::vector<TimerPtr>;
-    using Entry = std::pair<Timestamp, TimerPtr>;
+    TimerQueue() = default;
 
-    TimerQueue(EventLoop* loop);
-    ~TimerQueue() = default;
+    void runAfter(TimerCallback timercb, std::chrono::milliseconds millseconds);
+    void runAfter(TimerCallback timercb, double seconds);
 
-    void addTimer(TimerCallback cb, Timestamp timestamp, std::chrono::milliseconds interval);
-    void addTimer(TimerCallback cb, Timestamp timestamp, std::chrono::seconds seconds);
+    void runUntil(TimerCallback timercb, Timestamp expire_time);
+    void runUntil(TimerCallback timercb, time_t expire_time);
 
-    ActivateTimers getExpireation();
+    void runEvery(TimerCallback timercb, std::chrono::milliseconds millseconds);
+    void runEvery(TimerCallback timercb, double seconds);
 
-    void cancel(TimerId id);
-    Timestamp getNextExpirationTimestamp() const;
+    void addTimer(TimerPtr timer);
 
-    void reset(ActivateTimers timers);
+    Timestamp getNextExpiredTime() const;
+
+    void getExpiredTimes(std::vector<TimerPtr>& expired_times);
 
 private:
-    using TimerList = std::set<Entry>;
-    using CancelTimer = std::set<TimerId>;
+    struct TimerPtrLess {
+    public:
+        bool operator()(const TimerPtr& left, const TimerPtr& right) const;
+    };
 
-    EventLoop* loop_;
-    TimerList timer_list_;
-    CancelTimer cancel_timers_;
+private:
+    using TimerMultiSet = std::multiset<TimerPtr, TimerPtrLess>;
+    TimerMultiSet timers_;
 };
+
+using TimerQueuePtr = std::unique_ptr<TimerQueue>;
+}
+
+#endif

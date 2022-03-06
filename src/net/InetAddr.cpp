@@ -1,142 +1,117 @@
 #include "InetAddr.hpp"
-#include "Logger.hpp"
-using namespace chauncy;
+#include <arpa/inet.h>
+#include <spdlog/spdlog.h>
+#include <string_view>
 
-InetAddr::InetAddr(IPVersion v)
-    : version_ { v }
+sockaddr_in* Duty::InetAddr::GetAsSockaddrIn()
 {
+    return reinterpret_cast<sockaddr_in*>(&ss_);
 }
 
-IPVersion InetAddr::version() const
+sockaddr_in6* Duty::InetAddr::GetAsSockaddrIn6()
 {
-    return version_;
+    return reinterpret_cast<sockaddr_in6*>(&ss_);
 }
 
-IPv4Address::IPv4Address()
-    : InetAddr { IPVersion::v4 }
-    , addr_ { 0 }
+Duty::InetAddr::InetAddr(std::string_view ip, uint16_t port, InetType type)
+    : type_ { type }
 {
-    addr_.sin_family = AF_INET;
-    addr_.sin_port = 0;
-    addr_.sin_addr.s_addr = INADDR_ANY;
-}
-
-IPv4Address::IPv4Address(uint16_t port)
-    : InetAddr { IPVersion::v4 }
-    , addr_ { 0 }
-{
-    addr_.sin_family = AF_INET;
-    addr_.sin_port = htons(port);
-    addr_.sin_addr.s_addr = INADDR_ANY;
-}
-
-IPv4Address::IPv4Address(std::string_view ip, uint16_t port)
-    : InetAddr { IPVersion::v4 }
-    , addr_ { 0 }
-{
-    addr_.sin_family = AF_INET;
-    addr_.sin_port = ::htons(port);
-    if (inet_pton(AF_INET, ip.data(), &addr_.sin_addr) == -1) {
-        char errMsg[256] {};
-        int size = snprintf(errMsg, sizeof(errMsg), "inet_pton: ");
-        strerror_r(errno, errMsg + size, sizeof(errMsg) - size);
-        CRITICAL(errMsg);
+    if (type == InetType::IPv4) {
+        GetAsSockaddrIn()->sin_family = AF_INET;
+        GetAsSockaddrIn()->sin_port = ::htons(port);
+        if (inet_pton(AF_INET, ip.data(), &GetAsSockaddrIn()->sin_addr) == -1) {
+            spdlog::error("inet_pton error: " + std::string(strerror(errno)));
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        GetAsSockaddrIn6()->sin6_family = AF_INET6;
+        GetAsSockaddrIn6()->sin6_port = ::htons(port);
+        if (inet_pton(AF_INET6, ip.data(), &GetAsSockaddrIn6()->sin6_addr) == -1) {
+            spdlog::error("inet_pton error: " + std::string(strerror(errno)));
+            exit(EXIT_FAILURE);
+        }
     }
 }
 
-struct sockaddr* IPv4Address::getaddr()
+Duty::InetAddr::InetAddr(std::string_view domain, InetType type)
+    : type_ { type }
 {
-    return reinterpret_cast<sockaddr*>(&addr_);
-}
+    auto lastColon = domain.find_last_of(":");
+    std::string ip;
+    uint16_t port;
+    if (type == InetType::IPv4) {
+        ip = std::string(domain.substr(0, lastColon - 1));
+        port = std::atoi(domain.substr(lastColon + 1).data());
 
-const struct sockaddr* IPv4Address::getaddr() const
-{
-    return reinterpret_cast<const sockaddr*>(&addr_);
-}
+        GetAsSockaddrIn()->sin_family = AF_INET;
+        GetAsSockaddrIn()->sin_port = htons(port);
+        if (inet_pton(AF_INET, ip.c_str(), &GetAsSockaddrIn()->sin_addr) == -1) {
+            spdlog::error("inet_pton error: " + std::string(strerror(errno)));
+            exit(EXIT_FAILURE);
+        }
 
-size_t IPv4Address::addrSize() const
-{
-    return sizeof(addr_);
-}
+    } else {
+        auto rightBracket = domain.find("]");
 
-uint16_t IPv4Address::port() const
-{
-    return ::ntohs(addr_.sin_port);
-}
+        assert(rightBracket < lastColon);
+        (void)rightBracket;
 
-std::string IPv4Address::ip() const
-{
-    char ipstr[INET_ADDRSTRLEN] {};
-    if (inet_ntop(AF_INET, &addr_.sin_addr, ipstr, INET_ADDRSTRLEN) == nullptr) {
-        char errMsg[256] {};
-        int size = snprintf(errMsg, sizeof(errMsg), "inet_ntop: ");
-        strerror_r(errno, errMsg + size, sizeof(errMsg) - size);
-        CRITICAL(errMsg);
-    }
+        ip = std::string(domain.substr(1, lastColon - 2));
+        port = std::atoi(domain.substr(lastColon + 1).data());
 
-    return std::string(ipstr);
-}
-
-IPv6Address::IPv6Address()
-    : InetAddr { IPVersion::v6 }
-    , addr_ { 0 }
-{
-    addr_.sin6_family = AF_INET6;
-    addr_.sin6_port = 0;
-    addr_.sin6_addr = in6addr_any;
-}
-
-IPv6Address::IPv6Address(uint16_t port)
-    : InetAddr { IPVersion::v6 }
-    , addr_ { 0 }
-{
-    addr_.sin6_family = AF_INET6;
-    addr_.sin6_port = htons(port);
-    addr_.sin6_addr = in6addr_any;
-}
-
-IPv6Address::IPv6Address(std::string_view ip, uint16_t port)
-    : InetAddr { IPVersion::v6 }
-    , addr_ { 0 }
-{
-    addr_.sin6_family = AF_INET6;
-    addr_.sin6_port = ::htons(port);
-    if (inet_pton(AF_INET6, ip.data(), &addr_.sin6_addr) == -1) {
-        char errMsg[256] {};
-        int size = snprintf(errMsg, sizeof(errMsg), "inet_pton: ");
-        strerror_r(errno, errMsg + size, sizeof(errMsg) - size);
-        CRITICAL(errMsg);
+        GetAsSockaddrIn6()->sin6_family = AF_INET6;
+        GetAsSockaddrIn6()->sin6_port = htons(port);
+        if (inet_pton(AF_INET6, ip.c_str(), &GetAsSockaddrIn6()->sin6_addr) == -1) {
+            spdlog::error("inet_pton error: " + std::string(strerror(errno)));
+            exit(EXIT_FAILURE);
+        }
     }
 }
 
-size_t IPv6Address::addrSize() const
+Duty::InetAddr::InetAddr(uint32_t ip, uint16_t port)
+    : type_ { InetType::IPv4 }
 {
-    return sizeof(addr_);
+    GetAsSockaddrIn()->sin_family = AF_INET;
+    GetAsSockaddrIn()->sin_port = htons(port);
+    GetAsSockaddrIn()->sin_addr.s_addr = htonl(ip);
 }
 
-struct sockaddr* IPv6Address::getaddr()
+Duty::InetAddr::InetAddr(const sockaddr& addr, socklen_t addrlen)
 {
-    return reinterpret_cast<sockaddr*>(&addr_);
+    ::memcpy(&ss_, &addr, addrlen);
+    if (addrlen == sizeof(sockaddr_in))
+        type_ = InetType::IPv4;
+    else
+        type_ = InetType::IPv6;
 }
 
-const struct sockaddr* IPv6Address::getaddr() const
+void Duty::InetAddr::setInetAddr(const sockaddr* addr, socklen_t addrlen)
 {
-    return reinterpret_cast<const sockaddr*>(&addr_);
-}
-uint16_t IPv6Address::port() const
-{
-    return ::ntohs(addr_.sin6_port);
-}
-
-std::string IPv6Address::ip() const
-{
-    char ipstr[INET6_ADDRSTRLEN] {};
-    if (inet_ntop(AF_INET6, &addr_.sin6_addr, ipstr, INET6_ADDRSTRLEN) == nullptr) {
-        char errMsg[256] {};
-        int size = snprintf(errMsg, sizeof(errMsg), "inet_ntop: ");
-        strerror_r(errno, errMsg + size, sizeof(errMsg) - size);
-        CRITICAL(errMsg);
+    if (addrlen == sizeof(sockaddr_in)) {
+        type_ = InetType::IPv4;
+    } else {
+        type_ = InetType::IPv6;
     }
 
-    return std::string(ipstr);
+    ::memcpy(&ss_, addr, addrlen);
+}
+
+sockaddr* Duty::InetAddr::GetSockaddr()
+{
+    return const_cast<sockaddr*>(
+        const_cast<const InetAddr*>(this)->GetSockaddr());
+}
+
+const sockaddr* Duty::InetAddr::GetSockaddr() const
+{
+    return reinterpret_cast<const sockaddr*>(&ss_);
+}
+
+socklen_t Duty::InetAddr::GetSize() const
+{
+    if (type_ == InetType::IPv4) {
+        return sizeof(sockaddr_in);
+    } else {
+        return sizeof(sockaddr_in6);
+    }
 }

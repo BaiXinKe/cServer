@@ -1,54 +1,104 @@
 #include "ListenSocket.hpp"
-#include "Error.hpp"
-#include "InetAddr.hpp"
-#include "Logger.hpp"
-#include "Socket.hpp"
-#include <sys/eventfd.h>
-#include <sys/socket.h>
+#include "EventLoop.hpp"
+#include <cassert>
+#include <netinet/tcp.h>
+#include <spdlog/spdlog.h>
 
-using namespace chauncy;
-
-ListenSocket::ListenSocket(SocketType type)
-    : socket_ { type }
-    , dummyfd_ { eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK) }
+void Duty::defaultServerBusyCallback(int fd)
 {
-    // socket_.setnonblocking();
+    const char* msg = "Server Current So Busy";
+    ::send(fd, msg, strlen(msg), 0);
 }
 
-void ListenSocket::bind(const InetAddr& addr)
+int Duty::ListenSocket::createAndBindSocket(const InetAddr& inetaddr, ProtocolType protocol)
 {
-    if (::bind(socket_.fd(), addr.getaddr(), addr.addrSize()) == -1) {
-        std::string err = errMsg("bind");
-        CRITICAL(err);
+    int family = inetaddr.type() == InetType::IPv4 ? AF_INET : AF_INET6;
+    int type = protocol == ProtocolType::TCP ? SOCK_STREAM : SOCK_DGRAM;
+    int sockfd = ::socket(family, type, 0);
+    assert(sockfd >= 0);
+
+    if (::bind(sockfd, inetaddr.GetSockaddr(), inetaddr.GetSize()) == -1) {
+        spdlog::error("::bind the socket: " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
     }
+    return sockfd;
 }
 
-void ListenSocket::listen(int max_conn)
+Duty::ListenSocket::ListenSocket(EventLoop* loop, InetAddr inet_addr, ProtocolType protocol)
+    : Socket(inet_addr.type() == InetType::IPv4 ? AF_INET : AF_INET6,
+        protocol == ProtocolType::TCP ? SOCK_STREAM : SOCK_DGRAM, 0)
+    , loop_ { loop }
+    , channel_ { loop, handler_ }
+    , protocol_ { protocol }
+    , savefd_ { ::open("/dev/null", O_RDONLY) }
+    , busyCallback_ { defaultServerBusyCallback }
 {
-    if (::listen(socket_.fd(), max_conn) == -1) {
-        std::string err = errMsg("listen");
-        CRITICAL(err);
-    }
+    assert(handler_ >= 0);
+    this->setReuseAddr();
+    this->setNonblocking();
+    this->setReusePort();
+    this->setTcpNoDelay(true);
+
+    channel_.setReadCallback([this] { this->handleRead(); });
 }
 
-chauncy::Handler ListenSocket::accept(InetAddr& addr)
+void Duty::ListenSocket::handleRead()
 {
-    socklen_t len = addr.addrSize();
-    int connfd = ::accept4(socket_.fd(), addr.getaddr(), &len, SOCK_NONBLOCK | SOCK_CLOEXEC);
+    loop_->assertInLoopThread();
+
+    sockaddr_storage saddr;
+    socklen_t slen = sizeof(saddr);
+
+    int connfd = ::accept4(handler_, reinterpret_cast<sockaddr*>(&saddr), &slen, SOCK_NONBLOCK | SOCK_CLOEXEC);
     if (connfd == -1) {
-        if (errno == EMFILE || errno == ENFILE) {
-            ::close(dummyfd_);
-            dummyfd_ = ::accept(socket_.fd(), nullptr, nullptr);
-            ::close(dummyfd_);
-            dummyfd_ = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
-            WARN("the number of connect had reached the max open file descriptor number\n");
-        } else if (errno == EWOULDBLOCK || errno == EAGAIN) {
-            // no action for this
+        if (errno == EMFILE) {
+            ::close(savefd_);
+            connfd = ::accept4(handler_, NULL, NULL, 0);
+            if (busyCallback_)
+                busyCallback_(connfd);
+            ::close(connfd);
+            ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+        } else if (errno == EWOULDBLOCK || errno == EINTR) {
+            return;
         } else {
-            std::string err = errMsg("accept");
-            CRITICAL(err);
+            spdlog::error("accept4 error: " + std::string(strerror(errno)));
+        }
+    } else {
+
+        InetAddr inet { *reinterpret_cast<sockaddr*>(&saddr), slen };
+
+        if (newConnCallback_)
+            newConnCallback_(connfd, inet);
+        else {
+            ::close(connfd);
         }
     }
+}
 
-    return connfd;
+void Duty::ListenSocket::listen(int linq)
+{
+    if (::listen(handler_, linq) == -1) {
+        spdlog::error("listen error: " + std::string(strerror(errno)));
+        exit(EXIT_FAILURE);
+    }
+    listening_ = true;
+    channel_.enableRead();
+}
+
+Duty::ListenSocket::~ListenSocket()
+{
+    if (::close(handler_) == -1) {
+        spdlog::warn("::close litensockfd error: " + std::string(strerror(errno)));
+    }
+    channel_.disableAll();
+}
+
+void Duty::ListenSocket::setServerBusyCallback(ServerBusyCallback cb)
+{
+    busyCallback_ = std::move(cb);
+}
+
+void Duty::ListenSocket::setNewConnectionCallback(NewConnectionCallback cb)
+{
+    newConnCallback_ = std::move(cb);
 }

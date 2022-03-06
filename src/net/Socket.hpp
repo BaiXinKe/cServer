@@ -1,38 +1,30 @@
-#ifndef _SOCKET_HPP_
-#define _SOCKET_HPP_
+#ifndef SOCKET_HPP__
+#define SOCKET_HPP__
 
-#include <memory>
-#include <sys/types.h>
-#include <unistd.h>
+#include "Handler.hpp"
 
-namespace chauncy {
-using Handler = int;
-
-enum class SocketType {
-    IPv4,
-    IPv6
-};
-
-class Buffer;
+namespace Duty {
 
 class Socket {
 public:
-    explicit Socket(SocketType type);
+    Socket(int domain, int socktype, int protocol);
+    explicit Socket(int handler);
+    void setTcpNoDelay(bool on);
 
-    void setnonblocking();
+    void setLinger(bool on, int linger);
+
+    void setReuseAddr();
+    void setReusePort();
+    void setNonblocking();
+
+    void setKeepAlive(bool on);
 
     void shutdownWR();
 
-    ssize_t read(std::unique_ptr<Buffer>& buffer);
-    ssize_t write(std::unique_ptr<Buffer>& buffer);
-
-    Handler fd() const { return sockfd_; }
-
-    ~Socket() { ::close(sockfd_); }
-
-private:
-    Handler sockfd_;
+protected:
+    Handler handler_;
 };
-}
+
+};
 
 #endif

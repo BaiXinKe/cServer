@@ -1,64 +1,41 @@
-#ifndef INETADDR_HPP__
-#define INETADDR_HPP__
+#ifndef INET_ADDR_HPP__
+#define INET_ADDR_HPP__
 
-#include <arpa/inet.h>
+#include <netdb.h>
 #include <string_view>
 
-namespace chauncy {
+namespace Duty {
 
-enum class IPVersion {
-    v4,
-    v6
+enum class InetType {
+    IPv4,
+    IPv6
 };
 
 class InetAddr {
 public:
-    explicit InetAddr(IPVersion v);
+    InetAddr(std::string_view ip, uint16_t port, InetType type = InetType::IPv4);
+    explicit InetAddr(std::string_view domain, InetType type = InetType::IPv4);
+    InetAddr(uint32_t ip, uint16_t port);
+    InetAddr(const sockaddr& addr, socklen_t addrlen);
 
-    virtual const struct sockaddr* getaddr() const = 0;
-    virtual struct sockaddr* getaddr() = 0;
-    virtual size_t addrSize() const = 0;
-    virtual uint16_t port() const = 0;
-    virtual std::string ip() const = 0;
+    InetAddr() = default;
 
-    IPVersion version() const;
+    void setInetAddr(const sockaddr* addr, socklen_t addrlen);
 
-    virtual ~InetAddr() = default;
+    sockaddr* GetSockaddr();
+    const sockaddr* GetSockaddr() const;
 
-private:
-    IPVersion version_;
-};
+    socklen_t GetSize() const;
 
-class IPv4Address : public InetAddr {
-public:
-    IPv4Address();
-    explicit IPv4Address(uint16_t port);
-    IPv4Address(std::string_view ip, uint16_t port);
-
-    virtual const struct sockaddr* getaddr() const override;
-    virtual struct sockaddr* getaddr() override;
-    virtual size_t addrSize() const override;
-    virtual uint16_t port() const override;
-    virtual std::string ip() const override;
+    InetType type() const { return type_; }
 
 private:
-    sockaddr_in addr_;
-};
-
-class IPv6Address : public InetAddr {
-public:
-    IPv6Address();
-    explicit IPv6Address(uint16_t port);
-    IPv6Address(std::string_view ip, uint16_t port);
-
-    virtual const struct sockaddr* getaddr() const override;
-    virtual struct sockaddr* getaddr() override;
-    virtual size_t addrSize() const override;
-    virtual uint16_t port() const override;
-    virtual std::string ip() const override;
+    sockaddr_in* GetAsSockaddrIn();
+    sockaddr_in6* GetAsSockaddrIn6();
 
 private:
-    sockaddr_in6 addr_;
+    sockaddr_storage ss_;
+    InetType type_;
 };
 
 }

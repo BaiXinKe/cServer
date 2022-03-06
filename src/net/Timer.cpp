@@ -1,32 +1,31 @@
 #include "Timer.hpp"
-#include <chrono>
 
-Timer::Timer(TimerCallback cb, Timestamp expiration, std::chrono::milliseconds interval)
+Duty::Timer::Timer(TimerCallback timercb, Timestamp expire_time, std::chrono::milliseconds interval)
     : id_ {}
-    , timercb_ { cb }
-    , expiration_ { expiration }
+    , timercb_ { timercb }
+    , expire_time_ { expire_time }
     , interval_ { interval }
-    , repeat_ { interval != std::chrono::milliseconds() }
+    , repeat_ { interval != std::chrono::milliseconds {} }
 {
 }
 
-Timer::Timer(TimerCallback cb, Timestamp expiration, std::chrono::seconds interval)
-    : Timer { cb, expiration, std::chrono::duration_cast<std::chrono::milliseconds>(interval) }
-{
-}
-
-void Timer::reset()
-{
-    if (repeat_) {
-        expiration_ += std::chrono::milliseconds(interval_);
-    } else {
-        expiration_ = Timestamp();
-    }
-}
-
-void Timer::run()
+void Duty::Timer::run()
 {
     if (timercb_) {
         timercb_();
     }
+}
+
+void Duty::Timer::restart()
+{
+    if (repeat_) {
+        expire_time_ += interval_;
+    } else {
+        expire_time_ = Timestamp {};
+    }
+}
+
+bool Duty::Timer::expired() const
+{
+    return expire_time_ >= now();
 }

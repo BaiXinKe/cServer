@@ -1,31 +1,31 @@
-#pragma once
+#ifndef TIMERID_HPP__
+#define TIMERID_HPP__
 
 #include <atomic>
-#include <inttypes.h>
+
+namespace Duty {
 
 class TimerId {
 public:
     TimerId();
-
-    ~TimerId() = default;
-
-    inline bool operator==(const TimerId& other) const;
-    inline bool operator<(const TimerId& other) const;
+    friend bool operator<(const TimerId& left, const TimerId& right);
+    friend bool operator==(const Duty::TimerId& left, const TimerId& right);
 
 private:
-    static std::atomic<int64_t> globalId;
-
-    int64_t id_;
+    static std::atomic<uint64_t> globalId_;
+    uint64_t id_;
 };
 
-inline bool
-TimerId::operator==(const TimerId& other) const
+inline bool operator<(const TimerId& left, const TimerId& right)
 {
-    return this->id_ == other.id_;
+    return left.id_ < right.id_;
 }
 
-inline bool
-TimerId::operator<(const TimerId& other) const
+inline bool operator==(const Duty::TimerId& left, const TimerId& right)
 {
-    return this->id_ < other.id_;
+    return left.id_ == right.id_;
 }
+
+}
+
+#endif

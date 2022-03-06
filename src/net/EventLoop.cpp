@@ -1,125 +1,146 @@
-#include "EventLoop.h"
+#include "EventLoop.hpp"
+
 #include <cassert>
-#include <poll.h>
+#include <iostream>
+#include <thread>
+
 #include <spdlog/spdlog.h>
-#include <sys/eventfd.h>
 
-EventLoop::EventLoop()
+thread_local std::thread::id local_thread_id_;
+
+Duty::EventLoop::EventLoop()
     : stop_ { false }
-    , ownerThreadId_ { std::this_thread::get_id() }
-    , timerQueue_ { std::make_unique<TimerQueue>(this) }
-    , wakeFd_ { eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK) }
+    , runningPending_ { false }
+    , poll_ { std::make_unique<Poller>() }
+    , timerTaskQueue_ { std::make_unique<TimerQueue>() }
+    , pendingTask_ { std::make_unique<ThreadSafeQueue<PendingTask>>() }
 {
-    wakepollfd_.fd = wakeFd_;
-    wakepollfd_.events = POLLIN;
+    assert(stop_ == false);
+    local_thread_id_ = std::this_thread::get_id();
+    wake_.reset(new WakeUp(this));
 }
 
-void EventLoop::loop()
-{
-    assertInLoopThread();
-    while (!stop_) {
-        Timestamp ts = timerQueue_->getNextExpirationTimestamp();
-        Timestamp now = std::chrono::system_clock::now();
-
-        int ms = std::chrono::duration_cast<std::chrono::milliseconds>(ts - now).count();
-        ::poll(&wakepollfd_, 1, ms);
-
-        auto timerTask = timerQueue_->getExpireation();
-        for (auto& task : timerTask) {
-            task->run();
-        }
-
-        timerQueue_->reset(std::move(timerTask));
-    }
-}
-
-void EventLoop::quit()
-{
-    stop_ = true;
-}
-
-EventLoop::~EventLoop()
-{
-    quit();
-}
-
-bool EventLoop::isInLoopThread() const
-{
-    return ownerThreadId_ == std::this_thread::get_id();
-}
-
-void EventLoop::assertInLoopThread() const
+void Duty::EventLoop::assertInLoopThread() const
 {
     assert(isInLoopThread());
 }
 
-void EventLoop::runAt(TimerCallback cb, Timestamp ts)
+bool Duty::EventLoop::isInLoopThread() const
 {
-    timerQueue_->addTimer(cb, ts, std::chrono::milliseconds());
+    return local_thread_id_ == std::this_thread::get_id();
 }
 
-void EventLoop::runAfter(TimerCallback cb, std::chrono::seconds secs)
+Duty::EventLoop::~EventLoop()
 {
-    runAfter(cb, std::chrono::duration_cast<std::chrono::milliseconds>(secs));
+    stop_ = true;
 }
 
-void EventLoop::runAfter(TimerCallback cb, std::chrono::milliseconds ms)
+void Duty::EventLoop::loop()
 {
-    if (ms == std::chrono::milliseconds(0)) {
-        runInLoop(cb);
-        return;
+    assertInLoopThread();
+    while (!stop_) {
+        activedChannels_.clear();
+        auto ts = timerTaskQueue_->getNextExpiredTime();
+
+        poll_->poll(activedChannels_, ts);
+
+        doPendingTasks();
+        for (auto&& actived : activedChannels_) {
+            actived->handleEvent();
+        }
+        activedChannels_.clear();
+
+        timerTaskQueue_->getExpiredTimes(expired_timers_);
+        execExpiredTimesTask();
     }
-    Timestamp now = std::chrono::system_clock::now();
-    now += ms;
-    timerQueue_->addTimer(cb, now, std::chrono::milliseconds(0));
 }
 
-void EventLoop::runEvery(TimerCallback cb, std::chrono::seconds secs)
+void Duty::EventLoop::update(Channel* channel)
 {
-    runEvery(cb, std::chrono::duration_cast<std::chrono::milliseconds>(secs));
+    assertInLoopThread();
+    this->poll_->update(channel);
 }
 
-void EventLoop::runEvery(TimerCallback cb, std::chrono::milliseconds ms)
+void Duty::EventLoop::removeChannel(Channel* channel)
 {
-    if (ms == std::chrono::milliseconds(0)) {
-        spdlog::critical("The time interval of runEveny is too small");
-        exit(EXIT_FAILURE);
-    }
-
-    Timestamp now = std::chrono::system_clock::now();
-    now += ms;
-    timerQueue_->addTimer(cb, now, ms);
+    this->assertInLoopThread();
+    this->poll_->removeChannel(channel);
 }
 
-void EventLoop::runInLoop(Functor func)
+void Duty::EventLoop::runInLoop(PendingTask task)
 {
     if (isInLoopThread()) {
-        func();
+        task();
     } else {
-        {
-            std::lock_guard<std::mutex> lock(mtx_);
-            pendingFunctors_.push_back(std::move(func));
-        }
-        wakeup();
+        pendingTask_->push(std::move(task));
+        wake_->handleWrite();
     }
 }
 
-void EventLoop::wakeup()
+void Duty::EventLoop::runAfter(TimerCallback timercb, std::chrono::milliseconds millseconds)
 {
-    int64_t wake { 1 };
-    if (write(wakeFd_, &wake, sizeof(int64_t)) != sizeof(int64_t)) {
-        spdlog::critical("write to wakeFd_ error");
-        exit(EXIT_FAILURE);
-    }
+    PendingTask task { [this, timercb, millseconds] {
+        timerTaskQueue_->runAfter(std::move(timercb), millseconds);
+    } };
+    this->runInLoop(std::move(task));
+}
+void Duty::EventLoop::runAfter(TimerCallback timercb, double seconds)
+{
+    this->runInLoop([this, timercb, seconds] {
+        timerTaskQueue_->runAfter(std::move(timercb), seconds);
+    });
 }
 
-void EventLoop::handleRead()
+void Duty::EventLoop::runUntil(TimerCallback timercb, Timestamp expire_time)
 {
-    int64_t resetRead;
-    if (read(wakeFd_, &resetRead, sizeof(int64_t)) != sizeof(int64_t)) {
-        if (errno != EAGAIN || errno != EWOULDBLOCK) {
-            spdlog::critical("partition/failed read from wakeFd_");
-            exit(EXIT_FAILURE);
+    this->runInLoop([this, timercb, expire_time] {
+        timerTaskQueue_->runUntil(std::move(timercb), expire_time);
+    });
+}
+void Duty::EventLoop::runUntil(TimerCallback timercb, time_t expire_time)
+{
+    this->runInLoop([this, timercb, expire_time] {
+        timerTaskQueue_->runUntil(std::move(timercb), expire_time);
+    });
+}
+
+void Duty::EventLoop::runEvery(TimerCallback timercb, std::chrono::milliseconds millseconds)
+{
+    this->runInLoop([this, timercb, millseconds] {
+        timerTaskQueue_->runEvery(std::move(timercb), millseconds);
+    });
+}
+void Duty::EventLoop::runEvery(TimerCallback timercb, double seconds)
+{
+    this->runInLoop([this, timercb, seconds] {
+        timerTaskQueue_->runEvery(std::move(timercb), seconds);
+    });
+}
+
+void Duty::EventLoop::execExpiredTimesTask()
+{
+    assertInLoopThread();
+    for (auto& timer : expired_timers_) {
+        timer->run();
+        if (timer->repeat()) {
+            timerTaskQueue_->addTimer(std::move(timer));
         }
     }
+    expired_timers_.clear();
+}
+
+void Duty::EventLoop::doPendingTasks()
+{
+    assertInLoopThread();
+
+    runningPending_ = true;
+
+    PendingTask task;
+    while (!pendingTask_->empty()) {
+        std::cout << "CallOnce" << std::endl;
+        pendingTask_->pop(task);
+        task();
+    }
+
+    runningPending_ = false;
 }
