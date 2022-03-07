@@ -11,7 +11,6 @@ void func()
 int main(int, char**)
 {
     EventLoop loop;
-    loop.runEvery(func, std::chrono::seconds(3));
 
     loop.loop();
 }

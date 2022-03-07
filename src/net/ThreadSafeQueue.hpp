@@ -47,6 +47,16 @@ public:
         return task;
     }
 
+    bool try_pop(Task& task)
+    {
+        std::lock_guard<std::mutex> lock(mtx_);
+        if (this->tasks_.empty())
+            return false;
+        task = std::move(*this->tasks_.front());
+        this->tasks_.pop_front();
+        return true;
+    }
+
     bool empty() const
     {
         std::lock_guard<std::mutex> lock(mtx_);
