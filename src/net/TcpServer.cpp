@@ -2,6 +2,7 @@
 #include "EventLoop.hpp"
 #include "EventLoopThreadPool.hpp"
 #include "ListenSocket.hpp"
+#include "sig_pipe.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -23,6 +24,7 @@ TcpServer::TcpServer(EventLoop* loop, const InetAddr& listenAddr, const std::str
     , start_ { false }
     , nextConnId_ { 1 }
 {
+    (void)ignore;
     acceptor_->setNewConnectionCallback(
         [this](int sockfd, const InetAddr& peerAddr) {
             this->newConnection(sockfd, peerAddr);

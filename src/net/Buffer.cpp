@@ -11,9 +11,9 @@ constexpr double Duty::Buffer::INCREASE_RATE;
 constexpr const char Duty::Buffer::CRLF[];
 
 Duty::Buffer::Buffer(size_t init_size)
-    : read_index_ { INIT_PREPEND_SIZE }
+    : data_(INIT_PREPEND_SIZE + init_size, '\0')
+    , read_index_ { INIT_PREPEND_SIZE }
     , write_index_ { INIT_PREPEND_SIZE }
-    , data_(INIT_PREPEND_SIZE + init_size, '\0')
     , capacity_ { init_size }
 {
 }
@@ -47,6 +47,11 @@ void Duty::Buffer::append(const void* buff, size_t size)
 
     expandSpace(size);
     append(buf, size);
+}
+
+void Duty::Buffer::append(std::string_view str)
+{
+    this->append(str.data(), str.size());
 }
 
 void Duty::Buffer::expandSpace(size_t size)
@@ -211,10 +216,10 @@ ssize_t Duty::Buffer::readHandler(Handler handler, int* savedErrno)
     iov[1].iov_base = buf;
     iov[1].iov_len = BUF_SIZE;
 
-    int ret = ::readv(handler, iov, 2);
+    ssize_t ret = ::readv(handler, iov, 2);
     if (ret == -1) {
         *savedErrno = errno;
-    } else if (ret <= writeable()) {
+    } else if (ret <= (ssize_t)writeable()) {
         write_index_ += ret;
         return ret;
     }

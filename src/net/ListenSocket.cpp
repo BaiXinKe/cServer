@@ -34,8 +34,8 @@ Duty::ListenSocket::ListenSocket(EventLoop* loop, InetAddr inet_addr, ProtocolTy
     : Socket(createAndBindSocket(inet_addr, protocol))
     , loop_ { loop }
     , channel_ { loop, handler_ }
-    , protocol_ { protocol }
     , savefd_ { ::open("/dev/null", O_RDONLY) }
+    , protocol_ { protocol }
     , busyCallback_ { defaultServerBusyCallback }
 {
     assert(handler_ >= 0);

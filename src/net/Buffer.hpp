@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-
-
 #include "Handler.hpp"
 
 namespace Duty {
@@ -26,6 +24,7 @@ public:
     char* Peek() { return &data_[read_index_]; }
 
     void append(const void* buf, size_t size);
+    void append(std::string_view);
 
     void appendInt8(int8_t val);
     void appendInt16(int16_t val);
