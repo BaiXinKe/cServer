@@ -24,6 +24,6 @@ private:
 
 using WakeUpPtr = std::unique_ptr<WakeUp>;
 
-};
+}
 
 #endif

@@ -29,6 +29,8 @@ public:
 
     InetType type() const { return type_; }
 
+    std::string toIpPort() const;
+
 private:
     sockaddr_in* GetAsSockaddrIn();
     sockaddr_in6* GetAsSockaddrIn6();

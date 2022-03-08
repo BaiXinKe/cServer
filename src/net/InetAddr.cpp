@@ -115,3 +115,14 @@ socklen_t Duty::InetAddr::GetSize() const
         return sizeof(sockaddr_in6);
     }
 }
+
+std::string Duty::InetAddr::toIpPort() const
+{
+    char ip[NI_MAXHOST] {}, port[NI_MAXSERV] {};
+
+    if (getnameinfo(this->GetSockaddr(), this->GetSize(), ip, NI_MAXHOST, port, NI_MAXSERV, 0) == -1) {
+        spdlog::warn("toIpPort Translation failed");
+    }
+
+    return std::string(ip) + ": " + std::string(port);
+}

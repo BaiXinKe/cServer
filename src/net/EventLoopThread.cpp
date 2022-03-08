@@ -4,14 +4,13 @@
 namespace Duty {
 
 EventLoopThread::EventLoopThread(const ThreadInitCallback& cb)
-    : loop_ { nullptr }
+    : start_pms_ {}
+    , start_fut_ { start_pms_.get_future() }
+    , loop_ { nullptr }
     , exiting_ { false }
     , thread_ { [this] { this->threadFunction(); } }
     , callback_(cb)
-    , start_pms_ {}
-    , start_fut_ {}
 {
-    start_fut_ = start_pms_.get_future();
 }
 
 EventLoopThread::~EventLoopThread()
@@ -38,7 +37,7 @@ EventLoop* EventLoopThread::startLoop()
         loop = loop_;
     }
 
-    return loop_;
+    return loop;
 }
 
 void EventLoopThread::threadFunction()

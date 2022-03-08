@@ -2,6 +2,16 @@
 #include "EventLoop.hpp"
 #include <spdlog/spdlog.h>
 
+void Duty::defaultConnectionCallback(const TcpConnectionPtr& conn)
+{
+    spdlog::info("{}->{} is {}", conn->getLocalAddr()->toIpPort(), conn->getPeerAddr()->toIpPort(), (conn->connected() ? "UP" : "DOWN"));
+}
+
+void Duty::defaultMessageCallback(const TcpConnectionPtr&, Buffer* buf, Timestamp)
+{
+    buf->retrieveAll();
+}
+
 Duty::TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
     Handler handler, const InetAddr& localaddr, const InetAddr& peeraddr)
     : state_ { State::kConnecting }
@@ -9,9 +19,9 @@ Duty::TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
     , name_ { name }
     , handler_ { handler }
     , socket_ { std::make_unique<Socket>(handler_) }
-    , channel_ { std::make_unique<Channel>(loop, handler) }
     , localAddr_ { localaddr }
     , peerAddr_ { peeraddr }
+    , channel_ { std::make_unique<Channel>(loop, handler) }
     , highWaterMark_ { 64 * 1024 * 1024 }
     , reading_ { false }
 {
@@ -193,6 +203,7 @@ void Duty::TcpConnection::connectEstablished()
     loop_->assertInLoopThread();
     assert(state_ == State::kConnecting);
     state_ = State::kConnected;
+
     channel_->tie(shared_from_this());
     channel_->enableRead();
 
@@ -218,7 +229,8 @@ void Duty::TcpConnection::handleRead()
     Timestamp receiveTime { now() };
     ssize_t n = inputBuffer_.readHandler(channel_->fd(), &savedErrno);
     if (n > 0) {
-        messagecb_(shared_from_this(), &inputBuffer_, receiveTime);
+        auto from_this = shared_from_this();
+        messagecb_(from_this, &inputBuffer_, receiveTime);
     } else if (n == 0) {
         handleClose();
     } else {
@@ -273,5 +285,6 @@ void Duty::TcpConnection::handleError()
     int error {};
     socklen_t errLen = sizeof(error);
     int err = ::getsockopt(channel_->fd(), SOL_SOCKET, SO_ERROR, &error, &errLen);
+    (void)err;
     spdlog::error("TcpConnection::handleError [ {} ] - SO_ERROR {} {}", name_, error, strerror(error));
 }

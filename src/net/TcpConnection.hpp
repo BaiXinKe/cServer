@@ -18,7 +18,7 @@ namespace Duty {
 class EventLoop;
 class Channel;
 
-class TcpConnection : std::enable_shared_from_this<TcpConnection> {
+class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
 public:
     TcpConnection(EventLoop* loop, const std::string& name, Handler handler, const InetAddr& localaddr, const InetAddr& peeraddr);
 
@@ -44,6 +44,50 @@ public:
     void connectEstablished();
 
     void connectDestroyed();
+
+    void setConnectionCallback(ConnectionCallback cb)
+    {
+        connectioncb_ = cb;
+    }
+
+    void setMessageCallback(MessageCallback cb)
+    {
+        messagecb_ = cb;
+    }
+
+    void setWriteCompeleteCallback(WriteCompleteCallback cb)
+    {
+        writeCompletecb_ = cb;
+    }
+
+    void setCloseCallback(CloseCallback cb)
+    {
+        closecb_ = cb;
+    }
+
+    const InetAddr* getLocalAddr() const
+    {
+        return &localAddr_;
+    }
+
+    const InetAddr* getPeerAddr() const
+    {
+        return &peerAddr_;
+    }
+
+    EventLoop* getLoop()
+    {
+        return loop_;
+    }
+    std::string name() const
+    {
+        return name_;
+    }
+
+    bool connected() const
+    {
+        return state_ == State::kConnected;
+    }
 
 private:
     void handleRead();

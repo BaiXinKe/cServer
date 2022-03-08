@@ -5,7 +5,25 @@ find_package(Threads REQUIRED)
 
 add_compile_options(-g -rdynamic -Wall -Wextra -Wpedantic -std=c++17)
 
-add_executable(${PROJECT_NAME} src/main.cc src/net/ThreadPool.cpp)
+set(SOURCE 
+    src/net/Buffer.cpp
+    src/net/Channel.cpp
+    src/net/Error.cpp
+    src/net/EventLoop.cpp
+    src/net/EventLoopThread.cpp
+    src/net/EventLoopThreadPool.cpp 
+    src/net/InetAddr.cpp
+    src/net/ListenSocket.cpp 
+    src/net/Poller.cpp 
+    src/net/Socket.cpp
+    src/net/TcpConnection.cpp
+    src/net/Timer.cpp 
+    src/net/TimerId.cpp
+    src/net/TimerQueue.cpp 
+    src/net/WakeUp.cpp
+    src/net/TcpServer.cpp)
+
+add_executable(${PROJECT_NAME} src/main.cc ${SOURCE})
 
 target_include_directories(${PROJECT_NAME}
     PUBLIC

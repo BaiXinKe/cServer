@@ -17,6 +17,12 @@ int Duty::ListenSocket::createAndBindSocket(const InetAddr& inetaddr, ProtocolTy
     int sockfd = ::socket(family, type, 0);
     assert(sockfd >= 0);
 
+    int op { 1 };
+    if (::setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &op, sizeof(op)) == -1) {
+        spdlog::critical("setsockopt error {} - {}", errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
     if (::bind(sockfd, inetaddr.GetSockaddr(), inetaddr.GetSize()) == -1) {
         spdlog::error("::bind the socket: " + std::string(strerror(errno)));
         exit(EXIT_FAILURE);
@@ -25,8 +31,7 @@ int Duty::ListenSocket::createAndBindSocket(const InetAddr& inetaddr, ProtocolTy
 }
 
 Duty::ListenSocket::ListenSocket(EventLoop* loop, InetAddr inet_addr, ProtocolType protocol)
-    : Socket(inet_addr.type() == InetType::IPv4 ? AF_INET : AF_INET6,
-        protocol == ProtocolType::TCP ? SOCK_STREAM : SOCK_DGRAM, 0)
+    : Socket(createAndBindSocket(inet_addr, protocol))
     , loop_ { loop }
     , channel_ { loop, handler_ }
     , protocol_ { protocol }

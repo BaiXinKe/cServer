@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 
 namespace Duty {
 
@@ -124,6 +125,7 @@ private:
     int revent_;
 
     std::weak_ptr<TcpConnection> tie_;
+    bool tied_;
 
     State state_;
 

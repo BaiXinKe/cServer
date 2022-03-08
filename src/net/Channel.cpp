@@ -12,6 +12,7 @@ Duty::Channel::Channel(EventLoop* loop, Handler fd)
     , state_ { State::NO_REG }
     , writing_ { false }
     , reading_ { false }
+    , tied_ { false }
 {
     assert(loop_ != nullptr);
 }
@@ -23,6 +24,10 @@ void Duty::Channel::update()
 
 void Duty::Channel::handleEvent()
 {
+    std::shared_ptr<TcpConnection> ptr;
+    if (tied_)
+        ptr = tie_.lock();
+
     if (revent_ & IN) {
         if (revent_ & EPOLLHUP) {
             if (closecb_) {
@@ -56,4 +61,5 @@ Duty::Channel::~Channel()
 void Duty::Channel::tie(const std::weak_ptr<TcpConnection>& ptr)
 {
     tie_ = ptr;
+    tied_ = true;
 }

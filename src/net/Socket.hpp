@@ -25,6 +25,6 @@ protected:
     Handler handler_;
 };
 
-};
+}
 
 #endif

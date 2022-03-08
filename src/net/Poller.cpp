@@ -20,7 +20,7 @@ void Duty::Poller::poll(ActivateChannls& activateChannels, Timestamp expired)
     int numActivated = ::epoll_wait(this->epollfd_, &activated_[0], activated_.size(), timeout);
     if (numActivated == 0)
         return;
-    if (numActivated == -1) {
+    if (numActivated == -1 && errno != EINTR) {
         spdlog::critical("epoll_wait error: " + std::string(strerror(errno)));
         exit(EXIT_FAILURE);
     }
