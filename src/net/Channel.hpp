@@ -3,7 +3,6 @@
 
 #include "EventEnum.hpp"
 #include "Handler.hpp"
-#include "TcpConnection.hpp"
 
 #include <atomic>
 #include <functional>
@@ -20,12 +19,6 @@ public:
     using WriteCallback = std::function<void()>;
     using ErrorCallback = std::function<void()>;
     using ClosedCallback = std::function<void()>;
-
-    enum class State {
-        NO_REG, // channel not registe in pollList
-        REG, // channel registed in polllist
-        DEL // channel need removed form polllist
-    };
 
 public:
     explicit Channel(EventLoop* loop, Handler fd = InvaildHandler);
@@ -55,12 +48,6 @@ public:
         update();
     }
 
-    void enableError()
-    {
-        event_ |= ERR;
-        update();
-    }
-
     void disableRead()
     {
         event_ &= ~IN;
@@ -75,21 +62,9 @@ public:
         update();
     }
 
-    void disableErr()
-    {
-        event_ &= ~ERR;
-        update();
-    }
-
     void disableAll()
     {
         event_ = empty_event_;
-        update();
-    }
-
-    void removeFromEpollList()
-    {
-        state_ = State::DEL;
         update();
     }
 
@@ -103,12 +78,9 @@ public:
         return reading_.load();
     }
 
-    State getState() const { return state_; }
-    void setState(State state) { state_ = state; }
-
     void handleEvent();
 
-    void tie(const std::weak_ptr<TcpConnection>&);
+    void tie(const std::weak_ptr<void>&);
     void remove();
 
 private:
@@ -123,11 +95,10 @@ private:
 
     int event_;
     int revent_;
+    std::atomic<bool> eventHanding_;
 
-    std::weak_ptr<TcpConnection> tie_;
+    std::weak_ptr<void> tie_;
     bool tied_;
-
-    State state_;
 
     ReadCallback readcb_;
     WriteCallback writecb_;
@@ -136,7 +107,6 @@ private:
 
     std::atomic<bool> writing_, reading_;
 };
-
 }
 
 #endif

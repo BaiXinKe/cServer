@@ -1,13 +1,11 @@
-#ifndef EVENT_LOOP_THREAD_HPP__
-#define EVENT_LOOP_THREAD_HPP__
+#ifndef EVENTLOOP_THREAD_HPP__
+#define EVENTLOOP_THREAD_HPP__
 
 #include <condition_variable>
+#include <functional>
+#include <future>
 #include <mutex>
 #include <thread>
-
-#include <future>
-
-#include <functional>
 
 namespace Duty {
 
@@ -26,14 +24,15 @@ private:
     void threadFunction();
 
 private:
-    std::promise<void> start_pms_;
-    std::future<void> start_fut_;
+    std::promise<void> start_flags_;
+    std::future<void> wait_falgs_;
 
     EventLoop* loop_;
     bool exiting_;
-    std::thread thread_;
     std::mutex mtx_;
     std::condition_variable cond_;
+
+    std::thread thread_;
     ThreadInitCallback callback_;
 };
 

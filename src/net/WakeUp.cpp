@@ -1,4 +1,4 @@
-#include "Wakeup.hpp"
+#include "WakeUp.hpp"
 #include <cassert>
 #include <spdlog/spdlog.h>
 #include <sys/eventfd.h>
@@ -23,7 +23,7 @@ void Duty::WakeUp::handleRead()
     }
 }
 
-void Duty::WakeUp::handleWrite()
+void Duty::WakeUp::wakeSignal()
 {
     uint64_t val { 1 };
     if (::write(eventfd_, &val, sizeof(uint64_t)) != sizeof(uint64_t)) {

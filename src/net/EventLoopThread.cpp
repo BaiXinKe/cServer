@@ -4,8 +4,8 @@
 namespace Duty {
 
 EventLoopThread::EventLoopThread(const ThreadInitCallback& cb)
-    : start_pms_ {}
-    , start_fut_ { start_pms_.get_future() }
+    : start_flags_ {}
+    , wait_falgs_ { start_flags_.get_future() }
     , loop_ { nullptr }
     , exiting_ { false }
     , thread_ { [this] { this->threadFunction(); } }
@@ -25,24 +25,17 @@ EventLoopThread::~EventLoopThread()
 
 EventLoop* EventLoopThread::startLoop()
 {
-    EventLoop* loop = nullptr;
+    start_flags_.set_value();
     {
-        start_pms_.set_value();
-
         std::unique_lock<std::mutex> lock(mtx_);
-        while (loop_ == nullptr) {
-            cond_.wait(lock);
-        }
-
-        loop = loop_;
+        cond_.wait(lock, [this] { return this->loop_ != nullptr; });
     }
-
-    return loop;
+    return loop_;
 }
 
 void EventLoopThread::threadFunction()
 {
-    start_fut_.wait();
+    wait_falgs_.wait();
 
     EventLoop loop;
     if (callback_) {
@@ -51,7 +44,7 @@ void EventLoopThread::threadFunction()
 
     {
         std::lock_guard<std::mutex> lock(mtx_);
-        loop_ = &loop;
+        this->loop_ = &loop;
         cond_.notify_all();
     }
 

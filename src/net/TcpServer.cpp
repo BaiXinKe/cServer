@@ -1,4 +1,5 @@
 #include "TcpServer.hpp"
+#include "Buffer.hpp"
 #include "EventLoop.hpp"
 #include "EventLoopThreadPool.hpp"
 #include "ListenSocket.hpp"
@@ -9,6 +10,18 @@
 #include <stdio.h>
 
 namespace Duty {
+
+void defaultConnectionCallback(const TcpConnectionPtr& conn)
+{
+    spdlog::info("New Connection from {} to {}(local)", conn->getPeerAddr()->toIpPort(), conn->getLocalAddr()->toIpPort());
+}
+
+void defaultMessageCallback(const TcpConnectionPtr& conn, Buffer* buf, Timestamp ts)
+{
+    (void)conn;
+    (void)(ts);
+    buf->retrieveAll();
+}
 
 TcpServer::TcpServer(EventLoop* loop, const InetAddr& listenAddr, const std::string& name, ProtocolType protocol)
     : loop_ { loop }
@@ -89,7 +102,7 @@ void TcpServer::newConnection(int sockfd, const InetAddr& peerAddr)
 
 void TcpServer::removeConnection(const TcpConnectionPtr& conn)
 {
-    loop_->runInLoop([this, &conn] { this->removeConnectionInLoop(conn); });
+    loop_->runInLoop([this, conn] { this->removeConnectionInLoop(conn); });
 }
 
 void TcpServer::removeConnectionInLoop(const TcpConnectionPtr& conn)
@@ -97,11 +110,10 @@ void TcpServer::removeConnectionInLoop(const TcpConnectionPtr& conn)
     loop_->assertInLoopThread();
     spdlog::info("TcpServer::removeConnectionInLoop [{}] connection ", conn->name());
 
-    size_t n = connections_.erase(conn->name());
-    (void)n;
-    assert(n == 1);
+    connections_.erase(conn->name());
+
     EventLoop* ioLoop = conn->getLoop();
-    ioLoop->runInLoop([&conn] { conn->connectDestroyed(); });
+    ioLoop->runInLoop([conn] { conn->connectDestroyed(); });
 }
 
 }

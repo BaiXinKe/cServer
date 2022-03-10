@@ -36,12 +36,14 @@ void Duty::Poller::fillActivateChannels(ActivateChannls& activateChannels, int n
     for (int i = 0; i < numActivate; i++) {
         int activatedFd = activated_[i].data.fd;
 
-        assert(channels_.find(activatedFd) != channels_.end());
-        Channel* channel = channels_[activatedFd];
-        assert(channel->getState() == Channel::State::REG);
+        if (channels_.find(activatedFd) == channels_.end() || channels_[activatedFd] == nullptr) {
+            continue;
+        }
+        Channel* channel_ = channels_[activatedFd];
+        assert(channel_->getState() == Channel::State::REG);
 
-        channel->setRevent(activated_[i].events);
-        activateChannels.push_back(channel);
+        channel_->setRevent(activated_[i].events);
+        activateChannels.push_back(channel_);
     }
 }
 
@@ -62,7 +64,7 @@ void Duty::Poller::update(Channel* channel)
 
     } else {
         assert(channels_.find(channel->fd()) != channels_.end());
-        channels_.erase(channel->fd());
+        // channels_.erase(channel->fd());
         op = EPOLL_CTL_DEL;
     }
 

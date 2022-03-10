@@ -1,10 +1,10 @@
 #ifndef EVENTLOOP_HPP__
 #define EVENTLOOP_HPP__
 
-#include "Poller.hpp"
+#include "EPoller.hpp"
 #include "ThreadSafeQueue.hpp"
 #include "TimerQueue.hpp"
-#include "Wakeup.hpp"
+#include "WakeUp.hpp"
 
 #include <atomic>
 #include <memory>
@@ -56,7 +56,7 @@ private:
 
 private:
     std::atomic<bool> stop_;
-    std::unique_ptr<Poller> poll_;
+    std::unique_ptr<Epoller> poll_;
     ActivateChannls activedChannels_;
 
     TimerQueuePtr timerTaskQueue_;

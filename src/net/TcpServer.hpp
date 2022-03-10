@@ -18,11 +18,6 @@ class TcpServer {
 public:
     using ThreadInitCallback = std::function<void(EventLoop*)>;
 
-    enum class Option {
-        kNoReusePort,
-        kReusePort
-    };
-
     TcpServer(EventLoop* loop, const InetAddr& listenAddr, const std::string& name, ProtocolType protocol = ProtocolType::TCP);
     ~TcpServer();
 

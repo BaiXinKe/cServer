@@ -1,12 +1,11 @@
 #ifndef EVENT_ENUM_HPP__
 #define EVENT_ENUM_HPP__
 
-#include <sys/poll.h>
+#include <sys/epoll.h>
 
 enum EventType {
-    IN = POLLIN | POLLRDNORM | POLLPRI,
-    OUT = POLLOUT | POLLWRNORM,
-    ERR = POLLERR | POLLHUP
+    IN = EPOLLIN | EPOLLPRI,
+    OUT = EPOLLOUT
 };
 
 #endif

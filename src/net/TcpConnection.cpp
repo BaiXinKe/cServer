@@ -1,65 +1,231 @@
 #include "TcpConnection.hpp"
+#include "Buffer.hpp"
 #include "EventLoop.hpp"
+#include "Socket.hpp"
+
 #include <spdlog/spdlog.h>
 
-void Duty::defaultConnectionCallback(const TcpConnectionPtr& conn)
-{
-    spdlog::info("{}->{} is {}", conn->getLocalAddr()->toIpPort(), conn->getPeerAddr()->toIpPort(), (conn->connected() ? "UP" : "DOWN"));
-}
-
-void Duty::defaultMessageCallback(const TcpConnectionPtr&, Buffer* buf, Timestamp)
-{
-    buf->retrieveAll();
-}
-
-Duty::TcpConnection::TcpConnection(EventLoop* loop, const std::string& name,
-    Handler handler, const InetAddr& localaddr, const InetAddr& peeraddr)
-    : state_ { State::kConnecting }
+Duty::TcpConnection::TcpConnection(EventLoop* loop, std::string_view name,
+    Handler handler, const InetAddr& localAddr, const InetAddr& peerAddr)
+    : state_ { State::Connecting }
     , loop_ { loop }
     , name_ { name }
     , handler_ { handler }
+    , channel_ { loop, handler }
     , socket_ { std::make_unique<Socket>(handler_) }
-    , localAddr_ { localaddr }
-    , peerAddr_ { peeraddr }
-    , channel_ { std::make_unique<Channel>(loop, handler) }
-    , highWaterMark_ { 64 * 1024 * 1024 }
-    , reading_ { false }
+    , localAddr_ { localAddr }
+    , peerAddr_ { peerAddr }
+    , connectioncb_ {}
+    , messagecb_ {}
+    , writeCompletecb_ {}
+    , closecb_ {}
+    , highWaterMark_ { 16 * 1024 * 1024 }
+    , highWaterMarkcb_ {}
+    , inputBuffer_ { std::make_unique<Buffer>() }
+    , outputBuffer_ { std::make_unique<Buffer>() }
+
 {
-    channel_->setReadCallback([this] { this->handleRead(); });
-    channel_->setWriteCallback([this] { this->handleWrite(); });
-    channel_->setErrorCallback([this] { this->handleError(); });
-    channel_->setCloseCallback([this] { this->handleClose(); });
+    loop_->runInLoop([this] { this->channel_.setReadCallback([this] { this->handleRead(); }); });
+    loop_->runInLoop([this] { this->channel_.setWriteCallback([this] { this->handleWrite(); }); });
+    loop_->runInLoop([this] { this->channel_.setErrorCallback([this] { this->handleError(); }); });
+    loop_->runInLoop([this] { this->channel_.setCloseCallback([this] { this->handleClose(); }); });
 
     socket_->setKeepAlive(true);
 }
 
-void Duty::TcpConnection::send(const void* data, size_t len)
+void Duty::TcpConnection::handleRead()
 {
-    this->send(std::string_view(static_cast<const char*>(data), len));
-}
+    int savedErrno {};
+    ssize_t readBytes = inputBuffer_->readHandler(this->handler_, &savedErrno);
 
-void Duty::TcpConnection::send(std::string_view message)
-{
-    if (state_ == State::kConnected) {
-        if (loop_->isInLoopThread()) {
-            sendInLoop(message);
-        } else {
-            loop_->runInLoop([this, message] {
-                this->sendInLoop(std::string(message));
-            });
+    Timestamp curr { now() };
+    if (readBytes > 0) {
+        if (messagecb_) {
+            this->messagecb_(shared_from_this(), inputBuffer_.get(), curr);
         }
+    } else if (readBytes == 0) {
+        handleClose();
+    } else {
+        errno = savedErrno;
+        spdlog::error("TcpConnection handeRead (from inputBuffer->ReadHandler)");
+        handleError();
     }
 }
 
-void Duty::TcpConnection::send(Buffer* buf)
+void Duty::TcpConnection::handleError()
 {
-    if (state_ == State::kConnected) {
-        if (loop_->isInLoopThread()) {
-            sendInLoop(buf->Peek(), buf->readable());
-            buf->retrieveAll();
+    int error {};
+    socklen_t error_length { sizeof(error) };
+    int ret = ::getsockopt(this->handler_, SOL_SOCKET, SO_ERROR, &error, &error_length);
+    assert(ret >= 0);
+    spdlog::error("Error due to :[{}]", strerror(error));
+}
+
+void Duty::TcpConnection::handleClose()
+{
+    loop_->assertInLoopThread();
+    spdlog::trace("fd = {}", this->handler_);
+    assert(state_ == State::Connected || state_ == State::Disconnecting);
+    state_ = State::Disconnected;
+
+    channel_.disableAll();
+
+    TcpConnectionPtr guardThis { shared_from_this() };
+    connectioncb_(guardThis);
+    closecb_(guardThis);
+}
+
+void Duty::TcpConnection::handleWrite()
+{
+    loop_->assertInLoopThread();
+
+    ssize_t nwriten {};
+    if (channel_.isWriting()) {
+        nwriten = ::write(this->handler_, outputBuffer_->Peek(), outputBuffer_->readable());
+        if (nwriten > 0) {
+            outputBuffer_->retrieve(nwriten);
+            if (outputBuffer_->readable() == 0) {
+                channel_.disableWrite();
+                if (writeCompletecb_) {
+                    this->writeCompletecb_(shared_from_this());
+                }
+            }
+
+            if (state_ == State::Disconnecting) {
+                this->shutdownInLoop();
+            }
         } else {
-            loop_->runInLoop([this, buf] {
-                this->sendInLoop(buf->retrieveAllAsString());
+            spdlog::error("TcpConnection::handleWrite: [{}]", strerror(errno));
+        }
+    } else {
+        spdlog::trace("Connection fd = {} is down, no more writing", channel_.fd());
+    }
+}
+
+void Duty::TcpConnection::shutdown()
+{
+    if (state_ == State::Connected) {
+        state_ = State::Disconnecting;
+
+        this->loop_->runInLoop([self = shared_from_this()] { self->shutdownInLoop(); });
+    }
+}
+
+void Duty::TcpConnection::shutdownInLoop()
+{
+    loop_->assertInLoopThread();
+    if (!channel_.isWriting()) {
+        socket_->shutdownWR();
+    }
+}
+
+void Duty::TcpConnection::forceClose()
+{
+    if (state_ == State::Connected || state_ == State::Disconnecting) {
+        state_ = State::Disconnecting;
+        this->loop_->runInLoop([self = shared_from_this()] { self->forceCloseInLoop(); });
+    }
+}
+
+void Duty::TcpConnection::forceCloseWithDelay(double seconds)
+{
+    if (state_ == State::Connected || state_ == State::Disconnecting) {
+        state_ = State::Disconnecting;
+        this->loop_->runAfter([self = shared_from_this()] { self->forceCloseInLoop(); }, seconds);
+    }
+}
+
+void Duty::TcpConnection::forceCloseInLoop()
+{
+    loop_->assertInLoopThread();
+    if (state_ == State::Connected || state_ == State::Disconnecting) {
+        handleClose();
+    }
+}
+
+void Duty::TcpConnection::setTcpNoDelay(bool on)
+{
+    this->socket_->setTcpNoDelay(on);
+}
+
+void Duty::TcpConnection::startRead()
+{
+    this->loop_->runInLoop([self = shared_from_this()] { self->startReadInLoop(); });
+}
+
+void Duty::TcpConnection::startReadInLoop()
+{
+    loop_->assertInLoopThread();
+    if (!channel_.isReading()) {
+        channel_.enableRead();
+    }
+}
+
+void Duty::TcpConnection::stopRead()
+{
+    this->loop_->runInLoop([self = shared_from_this()] { self->stopReadInLoop(); });
+}
+
+void Duty::TcpConnection::stopReadInLoop()
+{
+    loop_->assertInLoopThread();
+    if (channel_.isReading()) {
+        channel_.disableRead();
+    }
+}
+
+void Duty::TcpConnection::connectEstablished()
+{
+    loop_->assertInLoopThread();
+    assert(state_ == State::Connecting);
+    state_ = State::Connected;
+
+    auto ptr = shared_from_this();
+
+    channel_.tie(ptr);
+    channel_.enableRead();
+
+    connectioncb_(ptr);
+}
+
+void Duty::TcpConnection::connectDestroyed()
+{
+    loop_->assertInLoopThread();
+    auto ptr = shared_from_this();
+    if (state_ == State::Connected) {
+        state_ = State::Disconnected;
+        channel_.disableAll();
+
+        connectioncb_(ptr);
+    }
+    channel_.remove();
+}
+
+void Duty::TcpConnection::send(const void* data, size_t len)
+{
+    send(std::string_view(reinterpret_cast<const char*>(data), len));
+}
+
+void Duty::TcpConnection::send(std::string_view data)
+{
+    if (state_ == State::Connected) {
+        if (loop_->isInLoopThread())
+            sendInLoop(data);
+        else
+            loop_->runInLoop([self = shared_from_this(), data] { self->sendInLoop(data); });
+    }
+}
+
+void Duty::TcpConnection::send(Buffer* buff)
+{
+    if (state_ == State::Connected) {
+        if (loop_->isInLoopThread()) {
+            sendInLoop(buff->Peek(), buff->readable());
+            buff->retrieveAll();
+        } else {
+            loop_->runInLoop([self = shared_from_this(), buff] {
+                self->sendInLoop(buff->Peek(), buff->readable());
+                buff->retrieveAll();
             });
         }
     }
@@ -67,34 +233,34 @@ void Duty::TcpConnection::send(Buffer* buf)
 
 void Duty::TcpConnection::sendInLoop(std::string_view message)
 {
-    sendInLoop(message.data(), message.size());
+    loop_->assertInLoopThread();
+    if (state_ == State::Connected) {
+        sendInLoop(message.data(), message.size());
+    }
 }
 
 void Duty::TcpConnection::sendInLoop(const void* data, size_t len)
 {
     loop_->assertInLoopThread();
-    ssize_t nwrote = 0;
-    size_t remain = len;
+    ssize_t nwrite { 0 };
+    size_t remain { 0 };
     bool faultError { false };
-    if (state_ == State::kDisconnected) {
+
+    if (state_ == State::Disconnected) {
         spdlog::warn("disconnected, give up writing");
         return;
     }
 
-    // if no thing in output queue, try writing directly
-    if (!channel_->isWriting() && outputBuffer_.readable() == 0) {
-        nwrote = ::write(channel_->fd(), data, len);
-        if (nwrote >= 0) {
-            remain = len - nwrote;
-            if (remain == 0 && writeCompletecb_) {
-                loop_->runInLoop([self = shared_from_this()] {
-                    self->writeCompletecb_(self);
-                });
-            }
+    if (!channel_.isWriting() && outputBuffer_->readable() == 0) {
+        nwrite = ::write(this->handler_, data, len);
+        if (nwrite >= 0) {
+            remain = len - nwrite;
+            if (remain == 0 && writeCompletecb_)
+                writeCompletecb_(shared_from_this());
         } else {
-            nwrote = 0;
+            nwrite = 0;
             if (errno != EWOULDBLOCK) {
-                spdlog::error("TcpConnection::sendInLoop");
+                spdlog::error("TcpConnection::spdlogInLoop: {}", strerror(errno));
                 if (errno == EPIPE || errno == ECONNRESET) {
                     faultError = true;
                 }
@@ -104,187 +270,19 @@ void Duty::TcpConnection::sendInLoop(const void* data, size_t len)
 
     assert(remain <= len);
     if (!faultError && remain > 0) {
-        size_t oldLen = outputBuffer_.readable();
-        if (oldLen + remain >= highWaterMark_ && oldLen < highWaterMark_ && highWaterMarkcb_) {
-            loop_->runInLoop([self = shared_from_this(), oldLen, remain] {
-                self->highWaterMarkcb_(self, oldLen + remain);
-            });
+        size_t oldLen = outputBuffer_->readable();
+        if (oldLen + remain >= highWaterMark_ && highWaterMarkcb_) {
+            highWaterMarkcb_(shared_from_this(), oldLen + remain);
         }
-        outputBuffer_.append(static_cast<const char*>(data) + nwrote, remain);
-        if (!channel_->isWriting()) {
-            channel_->enableWrite();
-        }
+
+        outputBuffer_->append(static_cast<const char*>(data) + nwrite, remain);
+        if (!channel_.isWriting())
+            channel_.enableWrite();
     }
 }
 
-void Duty::TcpConnection::shutdown()
+Duty::TcpConnection::~TcpConnection()
 {
-    loop_->assertInLoopThread();
-    if (!channel_->isWriting()) {
-        socket_->shutdownWR();
-    }
-}
-
-void Duty::TcpConnection::shutdownInLoop()
-{
-    loop_->assertInLoopThread();
-    if (!channel_->isWriting()) {
-        socket_->shutdownWR();
-    }
-}
-
-void Duty::TcpConnection::forceClose()
-{
-    if (state_ == State::kConnected || state_ == State::kDisconnecting) {
-        state_ = State::kDisconnecting;
-        loop_->runInLoop([self = shared_from_this()] {
-            self->forceCloseInLoop();
-        });
-    }
-}
-
-void Duty::TcpConnection::forceCloseWithDelay(double seconds)
-{
-    if (state_ == State::kConnected || state_ == State::kDisconnecting) {
-        state_ = State::kDisconnecting;
-        loop_->runAfter([self = shared_from_this()] {
-            self->forceClose();
-        },
-            seconds);
-    }
-}
-
-void Duty::TcpConnection::forceCloseInLoop()
-{
-    loop_->assertInLoopThread();
-    if (state_ == State::kConnected || state_ == State::kDisconnecting) {
-        handleClose();
-    }
-}
-
-void Duty::TcpConnection::setTcpNoDelay(bool on)
-{
-    socket_->setTcpNoDelay(on);
-}
-
-void Duty::TcpConnection::startRead()
-{
-    loop_->runInLoop([this] {
-        this->startReadInLoop();
-    });
-}
-
-void Duty::TcpConnection::startReadInLoop()
-{
-    loop_->assertInLoopThread();
-    if (!reading_ || !channel_->isReading()) {
-        channel_->enableRead();
-    }
-}
-
-void Duty::TcpConnection::stopRead()
-{
-    loop_->runInLoop([this] {
-        this->stopReadInLoop();
-    });
-}
-
-void Duty::TcpConnection::stopReadInLoop()
-{
-    loop_->assertInLoopThread();
-    if (reading_ || channel_->isReading()) {
-        channel_->disableRead();
-        reading_ = false;
-    }
-}
-
-void Duty::TcpConnection::connectEstablished()
-{
-    loop_->assertInLoopThread();
-    assert(state_ == State::kConnecting);
-    state_ = State::kConnected;
-
-    channel_->tie(shared_from_this());
-    channel_->enableRead();
-
-    connectioncb_(shared_from_this());
-}
-
-void Duty::TcpConnection::connectDestroyed()
-{
-    loop_->assertInLoopThread();
-    if (state_ == State::kConnected) {
-        state_ = State::kDisconnected;
-        channel_->disableAll();
-
-        connectioncb_(shared_from_this());
-    }
-    channel_->remove();
-}
-
-void Duty::TcpConnection::handleRead()
-{
-    loop_->assertInLoopThread();
-    int savedErrno = 0;
-    Timestamp receiveTime { now() };
-    ssize_t n = inputBuffer_.readHandler(channel_->fd(), &savedErrno);
-    if (n > 0) {
-        auto from_this = shared_from_this();
-        messagecb_(from_this, &inputBuffer_, receiveTime);
-    } else if (n == 0) {
-        handleClose();
-    } else {
-        errno = savedErrno;
-        spdlog::error("TcpConnection::handleRead");
-        handleError();
-    }
-}
-
-void Duty::TcpConnection::handleWrite()
-{
-    loop_->assertInLoopThread();
-    if (channel_->isWriting()) {
-        ssize_t n = ::write(channel_->fd(), outputBuffer_.Peek(), outputBuffer_.readable());
-        if (n > 0) {
-            outputBuffer_.retrieve(n);
-            if (outputBuffer_.readable() == 0) {
-                channel_->disableWrite();
-                if (writeCompletecb_) {
-                    loop_->runInLoop([self = shared_from_this()] {
-                        self->writeCompletecb_(self);
-                    });
-                }
-                if (state_ == State::kDisconnecting) {
-                    this->shutdownInLoop();
-                }
-            }
-        } else {
-            spdlog::error("TcpConnection::handleWrite");
-        }
-    } else {
-        spdlog::trace("Connection fd = {} is down, no more writing", channel_->fd());
-    }
-}
-
-void Duty::TcpConnection::handleClose()
-{
-    loop_->assertInLoopThread();
-    spdlog::trace("fd = {}", channel_->fd());
-    assert(state_ == State::kConnected || state_ == State::kDisconnecting);
-    state_ = State::kDisconnected;
-
-    channel_->disableAll();
-
-    TcpConnectionPtr guardThis(shared_from_this());
-    connectioncb_(guardThis);
-    closecb_(guardThis);
-}
-
-void Duty::TcpConnection::handleError()
-{
-    int error {};
-    socklen_t errLen = sizeof(error);
-    int err = ::getsockopt(channel_->fd(), SOL_SOCKET, SO_ERROR, &error, &errLen);
-    (void)err;
-    spdlog::error("TcpConnection::handleError [ {} ] - SO_ERROR {} {}", name_, error, strerror(error));
+    spdlog::info("TcpConnection::dtor[{}] at fd= {} ", name_, channel_.fd());
+    assert(state_ == State::Disconnected);
 }

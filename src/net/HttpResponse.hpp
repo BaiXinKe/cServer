@@ -19,6 +19,12 @@ public:
         k404NotFound = 404,
     };
 
+    explicit HttpResponse(bool close)
+        : statusCode_(kUnknown)
+        , closeConnection_(close)
+    {
+    }
+
     void setStatusCode(HttpStatusCode code)
     {
         statusCode_ = code;

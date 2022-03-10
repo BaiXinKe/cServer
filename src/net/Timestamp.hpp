@@ -12,13 +12,13 @@ inline Timestamp now()
     return std::chrono::system_clock::now();
 }
 
-inline int64_t getDiffTimestampsMillseconds(Timestamp low, Timestamp high)
+inline int getDiffTimestampsMillseconds(Timestamp low, Timestamp high)
 {
     assert(low.time_since_epoch() < high.time_since_epoch());
     return std::chrono::duration_cast<std::chrono::milliseconds>(high - low).count();
 }
 
-inline int64_t getDiffAtNow(Timestamp ts)
+inline int getDiffAtNow(Timestamp ts)
 {
     return getDiffTimestampsMillseconds(now(), ts);
 }

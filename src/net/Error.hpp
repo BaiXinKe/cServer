@@ -7,6 +7,6 @@ namespace chauncy {
 
 std::string errMsg(std::string_view name);
 
-};
+}
 
 #endif
