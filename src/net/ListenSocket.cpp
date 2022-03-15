@@ -14,7 +14,7 @@ int Duty::ListenSocket::createAndBindSocket(const InetAddr& inetaddr, ProtocolTy
 {
     int family = inetaddr.type() == InetType::IPv4 ? AF_INET : AF_INET6;
     int type = protocol == ProtocolType::TCP ? SOCK_STREAM : SOCK_DGRAM;
-    int sockfd = ::socket(family, type, 0);
+    int sockfd = ::socket(family, type | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     assert(sockfd >= 0);
 
     int op { 1 };
@@ -40,7 +40,7 @@ Duty::ListenSocket::ListenSocket(EventLoop* loop, InetAddr inet_addr, ProtocolTy
 {
     assert(handler_ >= 0);
     this->setReuseAddr();
-    this->setNonblocking();
+    // this->setNonblocking();
     this->setReusePort();
     this->setTcpNoDelay(true);
 

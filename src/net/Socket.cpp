@@ -15,9 +15,9 @@ Duty::Socket::Socket(int domain, int socktype, int protocol)
 Duty::Socket::Socket(int handler)
     : handler_ { handler }
 {
-    this->setNonblocking();
-    this->setReuseAddr();
-    this->setReusePort();
+    //  this->setNonblocking();
+    // this->setReuseAddr();
+    // this->setReusePort();
     this->setTcpNoDelay(true);
 }
 

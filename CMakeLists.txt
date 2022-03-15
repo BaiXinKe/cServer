@@ -28,6 +28,7 @@ set(SOURCE
     src/net/WakeUp.cpp
     src/net/TcpServer.cpp
     src/net/HttpResponse.cpp
+    src/net/mime_types.cpp
     src/net/HttpContext.cpp
     src/net/HttpServer.cpp)
 

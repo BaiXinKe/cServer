@@ -16,6 +16,7 @@ public:
         k200Ok = 200,
         k301MovedPermanently = 301,
         k400BadRequest = 400,
+        k401AuthorizationRequired = 401,
         k404NotFound = 404,
     };
 

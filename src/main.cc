@@ -3,9 +3,13 @@
 #include "net/TcpServer.hpp"
 #include <iostream>
 
+#include "base/toDaemon.hpp"
+
 int main()
 {
     try {
+        // Duty::to_daemon(0);
+
         Duty::EventLoop mainLoop;
         Duty::InetAddr addr { "0.0.0.0", 1234 };
 

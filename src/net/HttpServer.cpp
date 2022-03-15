@@ -5,48 +5,28 @@
 #include "HttpRequest.hpp"
 #include "HttpResponse.hpp"
 
+#include "mime_types.hpp"
+
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
+
+#include <zlib.h>
 
 namespace Duty {
 
 void defaultHttpCallback(const HttpRequest& req, HttpResponse* resp)
 {
-    namespace fs = std::filesystem;
+    resp->setStatusCode(HttpResponse::k401AuthorizationRequired);
+    resp->setStatusMessage("Authorization Required");
 
-    std::string filename = req.path();
-    if (filename == "/") {
-        filename = "./index.html";
-    } else if (filename[0] == '/') {
-        filename = "." + filename;
-    }
+    char timeBuf[32] {};
+    time_t t = time(nullptr);
+    ctime_r(&t, timeBuf);
 
-    fs::path path { filename };
-    fs::directory_entry entry { path };
-
-    if (!entry.exists()) {
-        resp->setStatusCode(HttpResponse::k404NotFound);
-        resp->setStatusMessage("Not Found\r\n\r\n");
-        resp->setCloseConnection(true);
-        return;
-    }
-
-    std::string body;
-    body.resize(entry.file_size());
-    int fd = ::open(filename.c_str(), O_RDONLY);
-
-    auto needRead { entry.file_size() };
-    ssize_t readed = ::read(fd, &body[0], body.size());
-
-    if (static_cast<uintmax_t>(readed) < needRead)
-        spdlog::warn("partial read");
-
-    resp->setStatusCode(HttpResponse::k200Ok);
-    resp->setStatusMessage("OK");
-    resp->setContentType("text/html");
-    resp->addHeader("Content-Length", std::to_string(entry.file_size()));
-    resp->setBody(std::move(body));
+    resp->addHeader("Date", std::string(timeBuf, strlen(timeBuf) - 1));
+    resp->addHeader("Server", "cServer/0.1");
+    resp->addHeader("WWW-Autenticate", "Basic realm=\"input Your ID and Password\"");
 }
 
 HttpServer::HttpServer(EventLoop* loop, const InetAddr& listenAddr, const std::string& name)
